@@ -1,4 +1,4 @@
-package com.ck.trialapkmanager.security
+package com.github.sam_sudo.TrialAPKManager.security
 
 import android.content.ContentValues
 import android.content.Context
@@ -12,7 +12,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import com.ck.trialapkmanager.view.ActivationScreen
+import com.github.sam_sudo.TrialAPKManager.view.ActivationScreen
 import java.io.File
 import java.io.IOException
 

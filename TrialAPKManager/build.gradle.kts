@@ -4,14 +4,18 @@ plugins {
 }
 
 android {
-    namespace = "com.ck.trialapkmanager"
-    compileSdk = 34
+    namespace = "com.github.sam_sudo.TrialAPKManager"
+    compileSdk = 35
 
     defaultConfig {
         minSdk = 24
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
+    }
+
+    buildFeatures { // Enables Jetpack Compose for this module
+        compose = true
     }
 
     buildTypes {
@@ -33,10 +37,12 @@ android {
 }
 
 dependencies {
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.material3) // Material 3 para Composables básicos
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
+    implementation(libs.androidx.ui.graphics)
 }

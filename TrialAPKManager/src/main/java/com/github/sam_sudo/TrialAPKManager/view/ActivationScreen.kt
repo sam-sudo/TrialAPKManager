@@ -1,4 +1,4 @@
-package com.ck.trialapkmanager.view
+package com.github.sam_sudo.TrialAPKManager.view
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -19,14 +19,16 @@ fun ActivationScreen(onCodeEntered: (String) -> Boolean) {
     ) {
         Text(text = "Periodo de prueba expirado. Ingrese código de activación:", style = MaterialTheme.typography.bodyLarge)
         Spacer(modifier = Modifier.height(8.dp))
-        OutlinedTextField(
+        TextField(
             value = code,
             onValueChange = {
                 code = it
                 if (error) error = false  // limpiar error al cambiar texto
             },
-            label = { Text("Código de activación") }
+            label = { Text("Código de activación") },
+            isError = error
         )
+
         if (error) {
             Text("Código inválido, inténtelo de nuevo", color = MaterialTheme.colorScheme.error)
         }
