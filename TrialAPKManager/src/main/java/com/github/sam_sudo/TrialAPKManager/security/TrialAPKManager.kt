@@ -7,20 +7,43 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Base64
+import android.util.Log
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.work.Configuration
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import com.github.sam_sudo.TrialAPKManager.view.ActivationScreen
+import com.github.sam_sudo.TrialAPKManager.workers.TrialExpirationWorker
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 object TrialAPKManager {
 
+    val TAG = "TrialAPKManager"
     private val fileName = "license.dat.txt"
     private val dirName = "MyAppLicense"  // subcarpeta en Documents para la licencia
     private val xorKey = "MiClaveSecreta" // clave para cifrado XOR (básico)
+    private var trialStartTime: Long? = null
+
+    private val _licenseStatus = MutableStateFlow<LicenseStatus>(LicenseStatus.TRIAL_VALID)
 
     @Composable
     fun start(
@@ -29,34 +52,107 @@ object TrialAPKManager {
         validCodes: List<String>,
         showView: @Composable () -> Unit,
         activationCodeView: (@Composable (onCodeEntered: (String) -> Boolean) -> Unit)? = null,
-    ){
-        // Composición de la UI según el estado de la licencia
-        var licenseStatus by  remember { mutableStateOf(getLicenseStatus (context,trialDurationMs)) }
+    ) {
+        Log.w(TAG, "trialapkmanager start")
+        var isInitialized by rememberSaveable { mutableStateOf(false) }
+        var isLoading by rememberSaveable { mutableStateOf(true) }
 
-        when (licenseStatus) {
-            LicenseStatus.LICENSED, LicenseStatus.TRIAL_VALID -> {
-                // Contenido principal de la app (licencia activa o dentro de prueba)
-                showView()
+        LaunchedEffect(Unit) {
+            if (!isInitialized) {
+                isInitialized = true
+                _licenseStatus.value = getLicenseStatus(context, trialDurationMs) // 🔹 Asegurar que la UI no se componga antes
+                initializeWork(context,trialDurationMs)
+                isLoading = false
             }
-            LicenseStatus.TRIAL_EXPIRED -> {
-                activationCodeView?.invoke { code ->
-                    if (activateLicense(context, code, validCodes)) {
-                        licenseStatus = LicenseStatus.LICENSED // ✅ Update UI state
-                        true
-                    } else {
-                        false
-                    }
+        }
+
+        val licenseStatus by _licenseStatus.collectAsState()
+
+        if (isLoading) {
+            // 🔹 Mientras se carga el estado real, mostramos un indicador de carga o pantalla en blanco
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        } else {
+            when (licenseStatus) {
+                LicenseStatus.LICENSED, LicenseStatus.TRIAL_VALID -> showView()
+                LicenseStatus.TRIAL_EXPIRED -> activationCodeView?.invoke { code ->
+                    activateLicense(context, code, validCodes)
                 } ?: ActivationScreen { code ->
-                    if (activateLicense(context, code, validCodes)) {
-                        licenseStatus = LicenseStatus.LICENSED // ✅ Update UI state
-                        true
-                    } else {
-                        false
-                    }
+                    activateLicense(context, code, validCodes)
                 }
             }
         }
     }
+
+    fun initializeWork(context: Context, trialDurationMs: Long) {
+        if (!WorkManager.isInitialized()) {
+            WorkManager.initialize(
+                context.applicationContext,
+                Configuration.Builder()
+                    .setMinimumLoggingLevel(Log.DEBUG)
+                    .build()
+            )
+            Log.d(TAG, "WorkManager manually initialized")
+        }else{
+            Log.d(TAG, "WorkManager was already initialized")
+        }
+
+        scheduleTrialExpiration(context, trialDurationMs)
+    }
+
+    fun scheduleTrialExpiration(context: Context, trialDurationMs: Long) {
+        Log.d("TrialAPKManager", "scheduleTrialExpiration")
+
+        try {
+
+            if (_licenseStatus.value == LicenseStatus.LICENSED) {
+                Log.i("TrialAPKManager", "scheduleTrialExpiration: LICENSED")
+                return
+            }
+
+            val timeLeft = getTimeRemaining(trialDurationMs)
+            if (timeLeft > 0) {
+                Log.d("TrialAPKManager", "scheduleTrialExpiration: worker creating...")
+                val workRequest = OneTimeWorkRequestBuilder<TrialExpirationWorker>()
+                    .setInitialDelay(timeLeft, TimeUnit.MILLISECONDS)
+                    .setInputData(workDataOf("trial_duration" to trialDurationMs))
+                    .build()
+
+                WorkManager.getInstance(context).enqueueUniqueWork(
+                    "trial_expiration_work",
+                    ExistingWorkPolicy.REPLACE,
+                    workRequest
+                )
+            }
+
+            Log.d(TAG, "scheduleTrialExpiration: Worker scheduled correctly")
+        } catch (e: ClassNotFoundException) {
+            Log.e(TAG, "scheduleTrialExpiration: WorkManager is not available", e)
+        } catch (e: NoClassDefFoundError) {
+            Log.e(TAG, "scheduleTrialExpiration: WorkManager class not found", e)
+        } catch (e: Exception) {
+            Log.e(TAG, "scheduleTrialExpiration: Unexpected error", e)
+        }
+    }
+
+
+    private fun getTimeRemaining(trialDurationMs: Long): Long {
+        val startTime = getTrialStartTime() ?: return 0L
+        val now = System.currentTimeMillis()
+        return (startTime + trialDurationMs) - now
+    }
+
+    fun updateLicenseStatus(newStatus: LicenseStatus) {
+        if (_licenseStatus.value != newStatus) {
+            Log.d("TrialAPKManager", "Updating license status to: $newStatus")
+            _licenseStatus.value = newStatus
+        }
+    }
+
 
     // Obtiene el estado actual de la licencia (y crea el archivo inicial si no existe)
     fun getLicenseStatus(context: Context,trialDurationMs: Long): LicenseStatus {
@@ -66,12 +162,12 @@ object TrialAPKManager {
             val parts = decoded.split("|")
             if (parts.size >= 2) {
                 val isActivated = parts[0] == "1"
-                val startTime = parts[1].toLongOrNull() ?: 0L
+                trialStartTime = parts[1].toLongOrNull() ?: 0L // 🔹 Guardamos el tiempo en memoria
                 if (isActivated) {
                     return LicenseStatus.LICENSED
                 }
                 val now = System.currentTimeMillis()
-                return if (now - startTime > trialDurationMs) {
+                return if (now - trialStartTime!! > trialDurationMs) {
                     LicenseStatus.TRIAL_EXPIRED
                 } else {
                     LicenseStatus.TRIAL_VALID
@@ -85,20 +181,21 @@ object TrialAPKManager {
         return LicenseStatus.TRIAL_VALID
     }
 
+    fun getTrialStartTime(): Long? = trialStartTime  // 🔹 Método para acceder al tiempo almacenado en memoria
+
     // Valida un código de activación; aquí usamos una lógica sencilla (ejemplo de código válido)
     fun validateActivationCode(code: String,validCodes: List<String>): Boolean {
         return code.uppercase() in validCodes
     }
 
     // Activa la licencia guardando el estado de activación en el archivo (si el código es válido)
-    fun activateLicense(context: Context,code: String,validCodes: List<String>): Boolean {
-        if (!validateActivationCode(code,validCodes)) return false
-        // Leer fecha de inicio original (para no alterar el inicio de prueba)
-        val currentData = decrypt(readLicenseFile(context) ?: "")
-        val startTime = currentData.split("|").getOrNull(1) ?: "${System.currentTimeMillis()}"
-        // Construir nuevo contenido marcado como activado
-        val newContent = "1|$startTime"
-        writeLicenseFile(context,encrypt(newContent))
+    fun activateLicense(context: Context, code: String, validCodes: List<String>): Boolean {
+        if (!validateActivationCode(code, validCodes)) return false
+
+        val content = "1|${System.currentTimeMillis()}"
+        writeLicenseFile(context, encrypt(content))
+
+        _licenseStatus.value = LicenseStatus.LICENSED
         return true
     }
 
@@ -131,8 +228,8 @@ object TrialAPKManager {
 
     // Crea el archivo de licencia inicial en modo prueba (no activado, fecha = ahora)
     private fun createTrialFile(context: Context) {
-        val startTime = System.currentTimeMillis()
-        val content = "0|$startTime"  // "0" indica no activado, separado de la marca de tiempo
+        trialStartTime  = System.currentTimeMillis()
+        val content = "0|$trialStartTime "  // "0" indica no activado, separado de la marca de tiempo
         writeLicenseFile(context,encrypt(content))
     }
 

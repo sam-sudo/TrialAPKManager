@@ -19,3 +19,9 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+-keep class androidx.work.** { *; }
+-keep class androidx.work.impl.** { *; }
+-keep class androidx.work.OneTimeWorkRequest$Builder { *; }
+-keep class com.github.sam_sudo.TrialAPKManager.security.TrialAPKManager { *; }
+-keepclassmembers class com.github.sam_sudo.TrialAPKManager.security.TrialAPKManager { *; }
+-keepclassmembers enum * { *; }

@@ -14,13 +14,17 @@ android {
         consumerProguardFiles("consumer-rules.pro")
     }
 
+    composeOptions {
+        kotlinCompilerExtensionVersion = "1.5.0"
+    }
+
     buildFeatures { // Enables Jetpack Compose for this module
         compose = true
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -45,4 +49,7 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
+    implementation(libs.androidx.ui.tooling)
+    implementation(libs.androidx.ui.tooling.preview)
+    api(libs.androidx.work.runtime.ktx)
 }
